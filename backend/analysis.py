@@ -13,9 +13,17 @@ Clusters:
   G — Political Satire     (analyst note, not primary cluster)
 """
 
+import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
+import google.generativeai as genai
+from sklearn.metrics.pairwise import cosine_similarity
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+genai.configure(api_key=GEMINI_API_KEY)
+
 
 # ── LOCKED CLUSTER DEFINITIONS ─────────────────────────────────────────────
 CLUSTER_DEFS = [
@@ -109,7 +117,60 @@ def assign_cluster(text: str, mode: str = "sm") -> str:
     for cl in CLUSTER_DEFS:
         if any(k in t for k in cl[key]):
             return cl["id"]
-    return "Other"
+    return "UNCLASSIFIED"
+
+def get_embedding(text: str):
+    try:
+        response = genai.embed_content(
+            model="models/text-embedding-004",
+            content=str(text)
+        )
+
+        return response['embedding']
+
+    except Exception:
+        return None
+
+def semantic_cluster_match(text: str, threshold: float = 0.78):
+
+    emb = get_embedding(text)
+
+    if emb is None:
+        return "UNCLASSIFIED"
+
+    best_cluster = None
+    best_score = 0
+
+    for cid, cluster_emb in CLUSTER_FINGERPRINTS.items():
+
+        score = cosine_similarity(
+            [emb],
+            [cluster_emb]
+        )[0][0]
+
+        if score > best_score:
+            best_score = score
+            best_cluster = cid
+
+    if best_score >= threshold:
+        return best_cluster
+
+    return "UNCLASSIFIED"
+
+CLUSTER_FINGERPRINTS = {}
+
+for cl in CLUSTER_DEFS:
+
+    seed_text = (
+        cl["name"] + " " +
+        cl["desc"] + " " +
+        " ".join(cl["keywords_sm"])
+    )
+
+    emb = get_embedding(seed_text)
+
+    if emb:
+        CLUSTER_FINGERPRINTS[cl["id"]] = emb
 
 def detect_region(text: str):
     t = str(text).lower()
@@ -149,9 +210,73 @@ def run_analysis(sm_raw: pd.DataFrame, cm_raw: pd.DataFrame) -> dict:
     cm['date'] = pd.to_datetime(cm['Date'],      errors='coerce').dt.date
 
     # ── Cluster assignment
-    sm['cluster'] = sm['post_translation'].apply(lambda t: assign_cluster(t, "sm"))
+    def hybrid_cluster(text):
+
+        # First: strict rule-based
+        rule_match = assign_cluster(text, "sm")
+
+        if rule_match != "UNCLASSIFIED":
+            return rule_match
+
+        # Second: semantic similarity
+        return semantic_cluster_match(text)
+
+    sm['cluster'] = sm['post_translation'].apply(hybrid_cluster)
     cm_text = cm['Title'].fillna('') + ' ' + cm['Hit Sentence'].fillna('')
     cm['cluster'] = cm_text.apply(lambda t: assign_cluster(t, "cm"))
+
+    # ── Emerging candidate pool
+    emerging_candidates = sm[
+        sm['cluster'] == 'UNCLASSIFIED'
+    ].copy()
+    
+    # Remove very low-engagement noise
+    emerging_candidates = emerging_candidates[
+        emerging_candidates['engagement_score'] > 50
+    ]
+
+    emerging_summary = []
+
+    if len(emerging_candidates) > 0:
+
+        top_posts = (
+            emerging_candidates
+            .sort_values('engagement_score', ascending=False)
+            .head(5)
+        )
+
+        for _, row in top_posts.iterrows():
+
+            prompt = f"""
+    You are analyzing emerging public narratives.
+
+    Analyze this post:
+
+    {row['post_translation']}
+
+    Return:
+    1. Narrative title
+    2. One sentence summary
+    3. Why this may matter
+
+    Keep concise.
+    """
+
+            try:
+                model = genai.GenerativeModel("gemini-2.5-flash")
+
+                response = model.generate_content(prompt)
+
+                summary = response.text.strip()
+
+            except Exception:
+                summary = "Emerging narrative detected."
+
+            emerging_summary.append({
+                "text": row['post_translation'][:240],
+                "engagement": round(row['engagement_score'], 0),
+                "summary": summary
+            })
 
     # ── Satire flag
     sm['is_satire'] = sm['post_translation'].apply(is_satire)
@@ -282,4 +407,5 @@ def run_analysis(sm_raw: pd.DataFrame, cm_raw: pd.DataFrame) -> dict:
         ],
         "daily_clusters": daily_cluster_rows,
         "regions":           region_stats,
+        "emerging_narratives": emerging_summary,
     }

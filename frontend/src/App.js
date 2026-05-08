@@ -32,7 +32,7 @@ const CLUSTER_COLORS = {
   C: C.amber,
   D: "#6b7280",
   F: C.green,
-  Other: C.ink4,
+  UNCLASSIFIED: C.ink4,
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ function DailyTrendChart({ dailySm, dailyCm, dailyClusters }) {
               <YAxis tick={{ fontSize: 9 }} unit="%" domain={[0, 100]} />
               <Tooltip formatter={(v, name) => [`${v}%`, name]} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              {["B","C","F","A","D","Other"].map(id => (
+              {["B","C","F","A","D","UNCLASSIFIED"].map(id => (
                 <Area key={id} type="monotone" dataKey={id} stackId="1"
                       stroke={CLUSTER_COLORS[id]} fill={CLUSTER_COLORS[id]}
                       fillOpacity={0.75} name={id} />
@@ -423,6 +423,94 @@ export default function App() {
               />
               <RegionCards regions={data.regions} />
             </div>
+            
+            {/* Emerging Narratives */}
+            <div style={{
+              marginTop: 16,
+              background: "white",
+              borderRadius: 6,
+              border: `1px solid ${C.rule}`,
+              overflow: "hidden"
+            }}>
+
+              <div style={{
+                background: C.redLight,
+                padding: "6px 14px",
+                borderBottom: `1px solid ${C.rule}`
+              }}>
+                <span style={{
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                  color: C.red,
+                  fontWeight:700
+                }}>
+                  EMERGING NARRATIVES
+                </span>
+              </div>
+
+              <div style={{ padding: 14 }}>
+
+                {data.emerging_narratives?.length ? (
+
+                  data.emerging_narratives.map((n, i) => (
+
+                    <div
+                      key={i}
+                      style={{
+                        padding: "12px",
+                        border: `1px solid ${C.rule}`,
+                        borderLeft: `4px solid ${C.red}`,
+                        borderRadius: 4,
+                        marginBottom: 12,
+                        background: "#fff"
+                      }}
+                    >
+
+                      <div style={{
+                        fontSize: 11,
+                        color: C.ink2,
+                        lineHeight: 1.5,
+                        marginBottom: 8
+                      }}>
+                        {n.text}
+                      </div>
+
+                      <div style={{
+                        fontSize: 11,
+                        color: C.ink,
+                        lineHeight: 1.5,
+                        whiteSpace: "pre-wrap"
+                      }}>
+                        {n.summary}
+                      </div>
+
+                      <div style={{
+                        marginTop: 8,
+                        fontSize: 10,
+                        fontFamily: "monospace",
+                        color: C.red
+                      }}>
+                        Engagement: {fmt(n.engagement)}
+                      </div>
+
+                    </div>
+
+                  ))
+
+                ) : (
+
+                  <div style={{
+                    fontSize: 11,
+                    color: C.ink4
+                  }}>
+                    No emerging narratives detected.
+                  </div>
+
+                )}
+
+              </div>
+            </div>
+                
 
             {/* Cluster locked notice */}
             <div style={{
